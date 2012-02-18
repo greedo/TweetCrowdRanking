@@ -33,15 +33,18 @@ class Indexer(threading.Thread):
 		stream = tweetstream.SampleStream("username", "password")
 
 		for tweet in stream:
-                	try:
-									
-				contents = unicode(tweet['text'])
-				user_name = tweet['user']['screen_name']
+                	try:									
+				#contents = unicode(tweet['text'])
+				#user_name = tweet['user']['screen_name']
+				hashtags = tweet['user']['entities']['hashtags']['text']
+				creation_date = tweet['user']['created_at']
+				print hashtags
+				print creation_date
 				#print contents
 				#print user_name
 					
 				doc = Document()
-				doc.add(Field("user_name", user_name, Field.Store.YES, Field.Index.NOT_ANALYZED))
+				doc.add(Field("hashtags", user_name, Field.Store.YES, Field.Index.NOT_ANALYZED))
 					
 				if len(contents) > 0:
 					doc.add(Field("contents", contents, Field.Store.YES, Field.Index.ANALYZED))
