@@ -22,10 +22,11 @@ import threading, signal, os
 class Indexer(threading.Thread):
 
 	# set some initial values for the class, the root directory to start indexing and pass in a writer instance
-	def __init__(self, root, writer):
+	def __init__(self, root, writer, count):
 		threading.Thread.__init__(self)
 		self.root = root
 		self.writer = writer
+		self.count = count
 		
 	def run(self):
 		env.attachCurrentThread()
@@ -40,19 +41,20 @@ class Indexer(threading.Thread):
 				creation_date = str(tweet['created_at'])
 				hashtags = tweet['entities']['hashtags']
 				
-				# One tweet can have multiple hashtags
-				for hashtag in hashtags:
+				# we only want to add documents that contain a hashtag
+				if len(hashtags) > 0:
 				
-					# we only want to add documents that contain a hashtag
-					if len(hashtag) > 0:
-				
-						print hashtag
+					# One tweet can have multiple hashtags, each hashtag is a seperate document
+					for hashtag in hashtags:
+						
+						if self.count == 0:
+							print hashtag['text']
 					
 						doc = Document()
 						doc.add(Field("contents", contents, Field.Store.YES, Field.Index.NOT_ANALYZED))
 						doc.add(Field("user_name", user_name, Field.Store.YES, Field.Index.NOT_ANALYZED))
 						doc.add(Field("creation_date", creation_date, Field.Store.YES, Field.Index.NOT_ANALYZED))
-						doc.add(Field("hashtag", hashtag, Field.Store.YES, Field.Index.ANALYZED))
+						doc.add(Field("hashtag", hashtag['text'], Field.Store.YES, Field.Index.ANALYZED))
 					
 						self.writer.addDocument(doc)
 					
@@ -60,8 +62,11 @@ class Indexer(threading.Thread):
 						# this is only really required if we have added a new document
 						self.writer.optimize()
 						self.writer.commit()
-					else:
-						pass
+						
+						self.count = self.count + 1
+						
+				else:
+					pass
 						
 			except Exception as e: pass
 		
@@ -122,7 +127,8 @@ if __name__ == '__main__':
 	
 	# and start the indexer
 	# note the indexer thread is set to daemon causing it to terminate on a SIGINT
-	indexer = Indexer(STORE_DIR,writer)
+	count = 0
+	indexer = Indexer(STORE_DIR,writer,count)
 	indexer.setDaemon(True)
 	indexer.start()
 	print 'Starting Indexer in background...'
