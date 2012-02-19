@@ -22,39 +22,47 @@ import threading, signal, os
 class Indexer(threading.Thread):
 
 	# set some initial values for the class, the root directory to start indexing and pass in a writer instance
-	def __init__(self, root, writer, folder):
+	def __init__(self, root, writer):
 		threading.Thread.__init__(self)
 		self.root = root
 		self.writer = writer
-		self.folder = folder
 		
 	def run(self):
 		env.attachCurrentThread()
 		stream = tweetstream.SampleStream("username", "password")
 
 		for tweet in stream:
-                	try:									
-				#contents = unicode(tweet['text'])
-				#user_name = tweet['user']['screen_name']
-				hashtags = tweet['user']['entities']['hashtags']['text']
-				creation_date = tweet['user']['created_at']
-				print hashtags
-				print creation_date
-				#print contents
-				#print user_name
-					
-				doc = Document()
-				doc.add(Field("hashtags", user_name, Field.Store.YES, Field.Index.NOT_ANALYZED))
-					
-				if len(contents) > 0:
-					doc.add(Field("contents", contents, Field.Store.YES, Field.Index.ANALYZED))
-				else:
-					pass
-				self.writer.addDocument(doc)
+			
+                	try:
+             									
+				contents = unicode(tweet['text'])
+				user_name = tweet['user']['screen_name']
+				creation_date = str(tweet['created_at'])
+				hashtags = tweet['entities']['hashtags']
 				
-				# optimize for fast search and commit the changes
-				self.writer.optimize()
-				self.writer.commit()
+				# One tweet can have multiple hashtags
+				for hashtag in hashtags:
+				
+					# we only want to add documents that contain a hashtag
+					if len(hashtag) > 0:
+				
+						print hashtag
+					
+						doc = Document()
+						doc.add(Field("contents", contents, Field.Store.YES, Field.Index.NOT_ANALYZED))
+						doc.add(Field("user_name", user_name, Field.Store.YES, Field.Index.NOT_ANALYZED))
+						doc.add(Field("creation_date", creation_date, Field.Store.YES, Field.Index.NOT_ANALYZED))
+						doc.add(Field("hashtag", hashtag, Field.Store.YES, Field.Index.ANALYZED))
+					
+						self.writer.addDocument(doc)
+					
+						# optimize for fast search and commit the changes
+						# this is only really required if we have added a new document
+						self.writer.optimize()
+						self.writer.commit()
+					else:
+						pass
+						
 			except Exception as e: pass
 		
 
@@ -78,7 +86,7 @@ def run(writer, analyzer):
 		print "Searching for:", command
 		IndexReader = writer.getReader()
 		searcher = IndexSearcher(IndexReader)
-		query = QueryParser(Version.LUCENE_CURRENT, "contents", analyzer).parse(command)
+		query = QueryParser(Version.LUCENE_CURRENT, "hashtag", analyzer).parse(command)
 		scoreDocs = searcher.search(query, 50).scoreDocs
 		print "%s total matching documents." % len(scoreDocs)
 
@@ -86,12 +94,12 @@ def run(writer, analyzer):
 			doc = searcher.doc(scoreDoc.doc)
 			print 'tweet:', doc.get("contents")
 			print 'user_name:', doc.get("user_name")
+			print 'when', doc.get("creation_date")
 
 # main function for everything
 if __name__ == '__main__':
 	signal.signal(signal.SIGINT, quit_gracefully)
-	STORE_DIR = "index"
-	#lucene.initVM()
+	STORE_DIR = "/var/www/index"
 	env=lucene.initVM()
 	print 'Using Directory: ', STORE_DIR
 	
@@ -114,8 +122,7 @@ if __name__ == '__main__':
 	
 	# and start the indexer
 	# note the indexer thread is set to daemon causing it to terminate on a SIGINT
-	folder = "tweets"
-	indexer = Indexer(STORE_DIR,writer,folder)
+	indexer = Indexer(STORE_DIR,writer)
 	indexer.setDaemon(True)
 	indexer.start()
 	print 'Starting Indexer in background...'
