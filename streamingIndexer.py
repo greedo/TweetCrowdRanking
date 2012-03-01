@@ -16,9 +16,7 @@ from lucene import SimpleFSDirectory, System, File, Document, Field, StandardAna
 from lucene import QueryParser, IndexSearcher, Term, WildcardQuery
 from lucene import IndexReader
 
-import threading, signal, os
-#from datetime import datetime, timedelta
-import datetime
+import threading, signal, os, datetime
 
 # APScheduler - http://pypi.python.org/pypi/APScheduler/
 from apscheduler.scheduler import Scheduler
@@ -42,7 +40,7 @@ class Indexer(threading.Thread):
                 	try:						
 				contents = unicode(tweet['text'])
 				user_name = tweet['user']['screen_name']
-				creation_date = datetime.datetime.strptime(str(tweet['created_at']), "%a %b %d %H:%M:%S +0000 %Y")  
+				creation_date = str( datetime.datetime.strptime(str(tweet['created_at']), "%a %b %d %H:%M:%S +0000 %Y") )
 				hashtags = tweet['entities']['hashtags']
 				
 				# we only want to add documents that contain a hashtag
@@ -51,15 +49,14 @@ class Indexer(threading.Thread):
 					# One tweet can have multiple hashtags, each hashtag is a seperate document
 					for hashtag in hashtags:
 						
-						if self.count == 0:
-							print hashtag['text']
+						#if self.count == 0:
+						#	print hashtag['text']
 					
 						doc = Document()
 						doc.add(Field("contents", contents, Field.Store.YES, Field.Index.NOT_ANALYZED))
 						doc.add(Field("user_name", user_name, Field.Store.YES, Field.Index.NOT_ANALYZED))
 						doc.add(Field("creation_date", creation_date, Field.Store.YES, Field.Index.NOT_ANALYZED))
 						doc.add(Field("hashtag", hashtag['text'], Field.Store.YES, Field.Index.ANALYZED))
-						#doc.add(Field("added_date", _date, Field.Store.YES, Field.Index.NOT_ANALYZED))
 					
 						self.writer.addDocument(doc)
 					
@@ -68,14 +65,14 @@ class Indexer(threading.Thread):
 						self.writer.optimize()
 						self.writer.commit()
 						
-						self.count = self.count + 1
+						#self.count = self.count + 1
 						
 				else:
 					pass
 						
 			except Exception as e: pass
 		
-# this will do a clean-up operation
+# We delete documents if it outside the store window
 def deleteOldDocuments(*args):
 	
 	now = datetime.datetime.now() - datetime.timedelta(hours=6)
@@ -88,18 +85,16 @@ def deleteOldDocuments(*args):
 			
 		doc = IndexReader.document(i)
 		date = doc.get("creation_date")	
+		realDate = datetime.datetime.strptime(str(date), "%a %b %d %H:%M:%S")
 		
-		if now < date:
+		if now > realDate:
 			IndexReader.deleteDocument(i)
-			
-	writer.optimize()
-	writer.commit()	
+			writer.optimize()
+			writer.commit()	
 
 # before we close we always want to close the writer to prevent corruptions to the index
 def quit_gracefully(*args):
-	#indexer.join()
 	writer.close()
-	
 	print "Cleaning up and terminating"
 	exit(0)
 
@@ -163,14 +158,10 @@ if __name__ == '__main__':
 	indexer.start()
 	print 'Starting Indexer in background...'
 	
-	#now = datetime.datetime.now()
-	#print now - datetime.timedelta(hours=6)
-	
 	# Starting the cleanup scheduler
 	sched = Scheduler()
-	#sched.setDaemon(True)
 	sched.start()
-	sched.add_interval_job(deleteOldDocuments, minutes=1)
+	sched.add_interval_job(deleteOldDocuments, minutes=20)
 	
 	run(writer, analyzer)
 	quit_gracefully()
