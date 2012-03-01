@@ -13,10 +13,15 @@ import tweetstream
 
 import lucene
 from lucene import SimpleFSDirectory, System, File, Document, Field, StandardAnalyzer, IndexWriter, Version, VERSION
-from lucene import QueryParser, IndexSearcher
+from lucene import QueryParser, IndexSearcher, Term, WildcardQuery
 from lucene import IndexReader
 
 import threading, signal, os
+#from datetime import datetime, timedelta
+import datetime
+
+# APScheduler - http://pypi.python.org/pypi/APScheduler/
+from apscheduler.scheduler import Scheduler
 
 # Indexer thread
 class Indexer(threading.Thread):
@@ -34,11 +39,10 @@ class Indexer(threading.Thread):
 
 		for tweet in stream:
 			
-                	try:
-             									
+                	try:						
 				contents = unicode(tweet['text'])
 				user_name = tweet['user']['screen_name']
-				creation_date = str(tweet['created_at'])
+				creation_date = datetime.datetime.strptime(str(tweet['created_at']), "%a %b %d %H:%M:%S +0000 %Y")  
 				hashtags = tweet['entities']['hashtags']
 				
 				# we only want to add documents that contain a hashtag
@@ -55,6 +59,7 @@ class Indexer(threading.Thread):
 						doc.add(Field("user_name", user_name, Field.Store.YES, Field.Index.NOT_ANALYZED))
 						doc.add(Field("creation_date", creation_date, Field.Store.YES, Field.Index.NOT_ANALYZED))
 						doc.add(Field("hashtag", hashtag['text'], Field.Store.YES, Field.Index.ANALYZED))
+						#doc.add(Field("added_date", _date, Field.Store.YES, Field.Index.NOT_ANALYZED))
 					
 						self.writer.addDocument(doc)
 					
@@ -70,6 +75,25 @@ class Indexer(threading.Thread):
 						
 			except Exception as e: pass
 		
+# this will do a clean-up operation
+def deleteOldDocuments(*args):
+	
+	now = datetime.datetime.now() - datetime.timedelta(hours=6)
+	IndexReader = writer.getReader()
+	
+	for i in IndexReader.maxDoc():
+		
+		if IndexReader.isDeleted(i):
+			continue
+			
+		doc = IndexReader.document(i)
+		date = doc.get("creation_date")	
+		
+		if now < date:
+			IndexReader.deleteDocument(i)
+			
+	writer.optimize()
+	writer.commit()	
 
 # before we close we always want to close the writer to prevent corruptions to the index
 def quit_gracefully(*args):
@@ -91,12 +115,18 @@ def run(writer, analyzer):
 		print "Searching for:", command
 		IndexReader = writer.getReader()
 		searcher = IndexSearcher(IndexReader)
-		query = QueryParser(Version.LUCENE_CURRENT, "hashtag", analyzer).parse(command)
-		scoreDocs = searcher.search(query, 50).scoreDocs
+		#query = QueryParser(Version.LUCENE_CURRENT, "hashtag", analyzer).parse(command)
+		#scoreDocs = searcher.search(query, 50).scoreDocs
+		wildquery = command + "*"
+		term = Term("hashtag", wildquery)
+		query = WildcardQuery(term)
+		scoreDocs = searcher.search(query, 5).scoreDocs
 		print "%s total matching documents." % len(scoreDocs)
-
+		
 		for scoreDoc in scoreDocs:
 			doc = searcher.doc(scoreDoc.doc)
+			
+			score = ( len(command) / len(doc.get("hashtag")) ) * scoreDoc.score
 			print 'tweet:', doc.get("contents")
 			print 'user_name:', doc.get("user_name")
 			print 'when', doc.get("creation_date")
@@ -132,6 +162,15 @@ if __name__ == '__main__':
 	indexer.setDaemon(True)
 	indexer.start()
 	print 'Starting Indexer in background...'
+	
+	#now = datetime.datetime.now()
+	#print now - datetime.timedelta(hours=6)
+	
+	# Starting the cleanup scheduler
+	sched = Scheduler()
+	#sched.setDaemon(True)
+	sched.start()
+	sched.add_interval_job(deleteOldDocuments, minutes=1)
 	
 	run(writer, analyzer)
 	quit_gracefully()
